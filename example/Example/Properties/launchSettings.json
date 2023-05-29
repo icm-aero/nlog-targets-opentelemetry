@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "Example": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "ELASTIC_CLIENT_APIVERSIONING": "true"
+      }
+    }
+  }
+}

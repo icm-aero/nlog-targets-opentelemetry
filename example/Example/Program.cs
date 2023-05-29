@@ -115,8 +115,10 @@ static class Program
 //        Logger.Info("Testing json {person}", JsonConvert.SerializeObject(person));
 
         //Logger.Info("NLog Hallo Person with _ {person}", person);
+        Logger.Trace("Starting");
         Logger.Info("NLog Hallo Person with @ {@person}", person);
         Logger.Info("Logging a number: {0}", 10);
+        Logger.Debug("Logging a Location: {latitude}, {longitude}", person.Position.Latitude, person.Position.Longitude);
         //Logger.Info("NLog Hallo Person with $ {$person}", person);
         //Logger.Info("NLog Hallo Person with 0 {0}", person);
         //Logger.Info("NLog Hallo Person {person}", "foo");

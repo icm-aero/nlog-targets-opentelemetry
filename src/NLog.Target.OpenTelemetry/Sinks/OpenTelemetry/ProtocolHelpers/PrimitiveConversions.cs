@@ -16,14 +16,11 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Xml.Linq;
 using Google.Protobuf;
-using Newtonsoft.Json;
 using NLog;
 using NLog.Common;
 using OpenTelemetry.Proto.Common.V1;
 using OpenTelemetry.Proto.Logs.V1;
-using Serilog.Events;
 
 namespace Serilog.Sinks.OpenTelemetry.ProtocolHelpers;
 
@@ -34,20 +31,6 @@ static class PrimitiveConversions
     public static ulong ToUnixNano(DateTimeOffset t)
     {
         return (ulong)t.ToUnixTimeMilliseconds() * MillisToNanos;
-    }
-
-    public static SeverityNumber ToSeverityNumber(LogEventLevel level)
-    {
-        return level switch
-        {
-            LogEventLevel.Verbose => SeverityNumber.Trace,
-            LogEventLevel.Debug => SeverityNumber.Debug,
-            LogEventLevel.Information => SeverityNumber.Info,
-            LogEventLevel.Warning => SeverityNumber.Warn,
-            LogEventLevel.Error => SeverityNumber.Error,
-            LogEventLevel.Fatal => SeverityNumber.Fatal,
-            _ => SeverityNumber.Unspecified
-        };
     }
 
     public static SeverityNumber ToSeverityNumber(LogLevel level)
@@ -125,14 +108,15 @@ static class PrimitiveConversions
         };
     }
 
-    public static AnyValue ToOpenTelemetryScalar(ScalarValue scalar)
-    {
-        return ToOpenTelemetryPrimitive(scalar.Value);
-    }
-
     public static AnyValue ToOpenTelemetryScalar(object scalar)
     {
         return ToOpenTelemetryPrimitive(scalar);
+    }
+
+    /*
+    public static AnyValue ToOpenTelemetryScalar(ScalarValue scalar)
+    {
+        return ToOpenTelemetryPrimitive(scalar.Value);
     }
 
     public static AnyValue ToOpenTelemetryMap(StructureValue value)
@@ -235,6 +219,7 @@ static class PrimitiveConversions
             _ => ToOpenTelemetryPrimitive(value.ToString()),
         };
     }
+    */
 
     internal static string OnlyHexDigits(string s)
     {

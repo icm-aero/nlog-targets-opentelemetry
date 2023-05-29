@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Reflection;
 using Newtonsoft.Json;
 using NLog.Common;
 using NLog.Config;
@@ -75,6 +76,11 @@ namespace NLog.OpenTelemetry
         /// </summary>
         public bool IncludeDefaultFields { get; set; } = true;
 
+        public bool IncludeProcessInfo { get; set; } = true;
+        public bool IncludeThreadInfo { get; set; } = true;
+
+        public bool IncludeClassInfo { get; set; } = true;
+
         public bool IncludeMessageTemplateText { get; set; } = false;
 
         public bool IncludeMessageTemplateMD5Hash { get; set; } = false;
@@ -101,7 +107,9 @@ namespace NLog.OpenTelemetry
         /// <see cref="TraceSemanticConventions"/>.</remarks>
         public const string AttributeMessageTemplateMD5Hash = "message_template.hash.md5";
 
-        private OtelPropertyConvertor _otelPropertyConvertor = new OtelPropertyConvertor();
+        private List<KeyValue> _defaultAttributes = new List<KeyValue>();
+
+        //private OtelPropertyConvertor _otelPropertyConvertor = new OtelPropertyConvertor();
         public OtelTarget()
         {
             CreateSerilogPropertyValueConverter();
@@ -141,6 +149,7 @@ namespace NLog.OpenTelemetry
                 };
 
                 CreateRequestTemplate(eventInfo);
+                InitializeDefaultAttributes(eventInfo);
             }
             catch (Exception e)
             {
@@ -259,6 +268,7 @@ namespace NLog.OpenTelemetry
                 };
 
                 ProcessTraceContext(logRecord);
+                ProcessDefaultAttributes(logRecord, logEvent);
                 ProcessAttributes(logRecord, logEvent);
                 ProcessBaggage(logRecord);
                 ProcessMessageTemplate(logRecord, logEvent);
@@ -271,7 +281,6 @@ namespace NLog.OpenTelemetry
             {
                 InternalLogger.Error(e.FlattenToActualException(), "Error writing logEvent to OTEL");
             }
-            
         }
 
         private void ProcessTraceContext(LogRecord logRecord)
@@ -291,14 +300,52 @@ namespace NLog.OpenTelemetry
             }
         }
 
+        private void InitializeDefaultAttributes(LogEventInfo eventInfo)
+        {
+            if (IncludeProcessInfo)
+            {
+                AddAttributeFromLayout(eventInfo, "process.name", "${processname}");
+                AddAttributeFromLayout(eventInfo, "process.id", "${processid}");
+            }
+        }
+
+        private void AddAttributeFromLayout(LogEventInfo eventInfo, string name, string layout)
+        {
+            var processLayout = Layout.FromString(layout);
+            var processName = processLayout.Render(eventInfo);
+            var processNameAttribute = PrimitiveConversions.NewAttribute(name,
+                PrimitiveConversions.ToOpenTelemetryScalar(processName));
+            _defaultAttributes.Add(processNameAttribute);
+        }
+
+        private void ProcessDefaultAttributes(LogRecord logRecord, LogEventInfo logEvent)
+        {
+            if (logEvent.LoggerName != null)
+                logRecord.Attributes.Add(PrimitiveConversions.NewAttribute("logger",
+                    PrimitiveConversions.ToOpenTelemetryScalar(logEvent.LoggerName)));
+
+            logRecord.Attributes.Add(PrimitiveConversions.NewAttribute("ddsource",
+                PrimitiveConversions.ToOpenTelemetryScalar("csharp")));
+
+            logRecord.Attributes.Add(_defaultAttributes);
+
+            if (IncludeClassInfo)
+            {
+                AddAttributeFromLayout(logEvent, "code.class", "${callsite:className=true:methodName=false:fileName=false:includeSourcePath=false}");
+                AddAttributeFromLayout(logEvent, "code.method", "${callsite:className=false:methodName=true:fileName=false:includeSourcePath=false}");
+            }
+
+            if (IncludeThreadInfo)
+            {
+                AddAttributeFromLayout(logEvent, "thread.name", "${threadname}");
+                AddAttributeFromLayout(logEvent, "thread.id", "${threadid}");
+            }
+        }
+
         private void ProcessAttributes(LogRecord logRecord, LogEventInfo logEvent)
         {
             try
             {
-                if (logEvent.LoggerName != null)
-                    logRecord.Attributes.Add(PrimitiveConversions.NewAttribute("logger",
-                        PrimitiveConversions.ToOpenTelemetryScalar(logEvent.LoggerName)));
-
                 foreach (var attribute in Attributes)
                 {
                     var renderedField = RenderLogEvent(attribute.Layout, logEvent);

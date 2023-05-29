@@ -23,8 +23,11 @@
 	
 	<ItemGroup>
 	  <Compile Remove="Removable\**" />
+	  <Compile Remove="Serilog\**" />
 	  <EmbeddedResource Remove="Removable\**" />
+	  <EmbeddedResource Remove="Serilog\**" />
 	  <None Remove="Removable\**" />
+	  <None Remove="Serilog\**" />
 	</ItemGroup>
 	
 	<ItemGroup>

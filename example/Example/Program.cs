@@ -57,12 +57,12 @@ static class Program
         //var grpcLogger = GetLogger(OtlpProtocol.GrpcProtobuf);
         //var httpLogger = GetLogger(OtlpProtocol.HttpProtobuf);
 
-        ScopeContext.PushProperty("ScopedContextProp", "bar");
+        //ScopeContext.PushProperty("ScopedContextProp", "bar");
 #pragma warning disable CS0618
         MappedDiagnosticsLogicalContext.Set("MdlcProp", "foo");
 #pragma warning restore CS0618
 
-        using (ScopeContext.PushNestedState("Outer Scope"))
+        //using (ScopeContext.PushNestedState("Outer Scope"))
         {
             using (source.StartActivity("grpc-loop")?
                        .AddTag("myTag", "Important")

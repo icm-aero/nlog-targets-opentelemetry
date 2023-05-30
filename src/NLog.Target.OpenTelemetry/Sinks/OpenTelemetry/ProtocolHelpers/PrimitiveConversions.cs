@@ -17,6 +17,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using Google.Protobuf;
+using Newtonsoft.Json;
 using NLog;
 using NLog.Common;
 using OpenTelemetry.Proto.Common.V1;
@@ -105,6 +106,40 @@ static class PrimitiveConversions
             // more predictable.
             IFormattable f => new AnyValue { StringValue = f.ToString(null, CultureInfo.InvariantCulture) },
             _ => new AnyValue { StringValue = value.ToString() }
+        };
+    }
+
+    public static AnyValue ToSerializedOpenTelemetryPrimitive(object? value)
+    {
+        return value switch
+        {
+            null => new AnyValue(),
+            short i => new AnyValue { IntValue = i },
+            int i => new AnyValue { IntValue = i },
+            long i => new AnyValue { IntValue = i },
+            byte i => new AnyValue { IntValue = i },
+            ushort i => new AnyValue { IntValue = i },
+            uint i => new AnyValue { IntValue = i },
+            ulong i and < long.MaxValue => new AnyValue { IntValue = (long)i },
+#if FEATURE_HALF
+            Half d => new AnyValue { DoubleValue = (double)d },
+#endif
+            float d => new AnyValue { DoubleValue = d },
+            double d => new AnyValue { DoubleValue = d },
+            decimal d => new AnyValue { DoubleValue = (double)d },
+            string s => new AnyValue { StringValue = s },
+            bool b => new AnyValue { BoolValue = b },
+            DateTime dateTime => new AnyValue { StringValue = dateTime.ToString("O") },
+            DateTimeOffset dateTimeOffset => new AnyValue { StringValue = dateTimeOffset.ToString("O") },
+#if FEATURE_DATE_AND_TIME_ONLY
+            DateOnly dateOnly => new AnyValue { StringValue = dateOnly.ToString("yyyy-MM-dd") },
+            TimeOnly timeOnly => new AnyValue { StringValue = timeOnly.ToString("O") },
+#endif
+            // We may want to thread through the format provider that's used for message rendering, but where the
+            // results are consumed by a computer system rather than by an individual user InvariantCulture is often
+            // more predictable.
+            IFormattable f => new AnyValue { StringValue = f.ToString(null, CultureInfo.InvariantCulture) },
+            _ => new AnyValue { StringValue = JsonConvert.SerializeObject(value) }
         };
     }
 

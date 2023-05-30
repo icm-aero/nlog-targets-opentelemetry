@@ -22,6 +22,10 @@ using Newtonsoft.Json;
 using NLog;
 using Serilog.Sinks.OpenTelemetry;
 using ILogger = Serilog.ILogger;
+using NLog.Targets.Wrappers;
+using System.Reflection;
+using ReflectionMagic;
+
 #pragma warning disable CS0168
 
 namespace Example;
@@ -32,6 +36,9 @@ static class Program
     private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
     static void Main()
     {
+        GlobalDiagnosticsContext.Set("GlobalId", "1.2.3");
+        Console.WriteLine("Press any key to start");
+        Console.ReadKey();
         
         // create an ActivitySource (that is listened to) for creating an Activity
         // to test the trace and span ID enricher
@@ -46,38 +53,50 @@ static class Program
         var source = new ActivitySource("test.example", "1.0.0");
 
         // Create the loggers to send to gRPC and to HTTP.
-        
+
         //var grpcLogger = GetLogger(OtlpProtocol.GrpcProtobuf);
         //var httpLogger = GetLogger(OtlpProtocol.HttpProtobuf);
 
-        using (source.StartActivity("grpc-loop")?
-                   .Start()
-                   .AddBaggage("airport", "SYD")
-                   .AddBaggage("airline", "QF"))
+        ScopeContext.PushProperty("ScopedContextProp", "bar");
+#pragma warning disable CS0618
+        MappedDiagnosticsLogicalContext.Set("MdlcProp", "foo");
+#pragma warning restore CS0618
+
+        using (ScopeContext.PushNestedState("Outer Scope"))
         {
-            //System.Diagnostics.Activity.Current?.AddBaggage("airport", "SYD");
-
-            SendLogs(null, "grpc/protobuf");
-            //SendLogs(grpcLogger, "grpc/protobuf");
-            //Logger.Debug("Debug Log");
-            //Logger.Info("Hallo {name} from NLog", "world");
-
-            try
+            using (source.StartActivity("grpc-loop")?
+                       .AddTag("myTag", "Important")
+                       .Start()
+                       .AddBaggage("airport", "SYD")
+                       .AddBaggage("airline", "QF"))
             {
-                throw new ArgumentException("This is an invalid argument", "name");
+                //System.Diagnostics.Activity.Current?.AddBaggage("airport", "SYD");
+
+                SendLogs(null, "grpc/protobuf");
+                //SendLogs(grpcLogger, "grpc/protobuf");
+                //Logger.Debug("Debug Log");
+                //Logger.Info("Hallo {name} from NLog", "world");
+
+                try
+                {
+                    throw new ArgumentException("This is an invalid argument", "name");
+                }
+                catch (Exception e)
+                {
+                    //Logger.Error(e, "Testing an error log");
+                }
             }
-            catch (Exception e)
-            {
-                //Logger.Error(e, "Testing an error log");
-            }
+
+            //using (source.StartActivity("http-loop"))
+            //{
+            //    SendLogs(httpLogger, "http/protobuf");
+            //}
+
+            //Thread.Sleep(5000);
         }
 
-        //using (source.StartActivity("http-loop"))
-        //{
-        //    SendLogs(httpLogger, "http/protobuf");
-        //}
-
-        Thread.Sleep(5000);
+        Console.WriteLine("Press any key to exit...");
+        Console.ReadKey();
     }
 
     static void SendLogs(ILogger? logger, string protocol)
@@ -111,17 +130,37 @@ static class Program
             log.Information("Welcome from Serilog: {@person}", person);
         }
 
-//        Logger.Info("Testing simple value: name: {name}, age: {age}", "foo", 30);
-//        Logger.Info("Testing json {person}", JsonConvert.SerializeObject(person));
+        //        Logger.Info("Testing simple value: name: {name}, age: {age}", "foo", 30);
+        //        Logger.Info("Testing json {person}", JsonConvert.SerializeObject(person));
 
         //Logger.Info("NLog Hallo Person with _ {person}", person);
-        Logger.Trace("Starting");
-        Logger.Info("NLog Hallo Person with @ {@person}", person);
-        Logger.Info("Logging a number: {0}", 10);
-        Logger.Debug("Logging a Location: {latitude}, {longitude}", person.Position.Latitude, person.Position.Longitude);
-        //Logger.Info("NLog Hallo Person with $ {$person}", person);
-        //Logger.Info("NLog Hallo Person with 0 {0}", person);
-        //Logger.Info("NLog Hallo Person {person}", "foo");
+
+        var asyncTarget = LogManager.Configuration.AllTargets.OfType<AsyncTargetWrapper>()
+            .FirstOrDefault();
+        var asyncQueue = asyncTarget.AsDynamic()._requestQueue;
+        //for (int i = 0; i <= 4; i++)
+        {
+            //Console.WriteLine($"Running Batch: {i}");
+            var send = Parallel.For(0, 10000, (i) =>
+            {
+            //    Logger.Trace("Starting");
+                Logger.Info("NLog Hallo Person with @ {@person}", person);
+                Logger.Info("Logging a number: {0}", i);
+                Logger.Debug("Logging a Location: {latitude}, {longitude}", person.Position.Latitude,
+                    person.Position.Longitude);
+                //Logger.Info("NLog Hallo Person with $ {$person}", person);
+                //Logger.Info("NLog Hallo Person with 0 {0}", person);
+                //Logger.Info("NLog Hallo Person {person}", "foo");
+            }
+            );
+
+            int count = 1;
+            do
+            {
+                count = asyncQueue.Count;
+                Thread.Sleep(500);
+            } while (count > 0);
+        }
 
 
         try

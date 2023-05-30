@@ -44,10 +44,6 @@ namespace NLog.OpenTelemetry
 
         public Layout OtlpHeaders { get; set; }
 
-        /// <summary>
-        /// Gets or sets whether to include all properties of the log event in the document
-        /// </summary>
-        public bool IncludeAllProperties { get; set; } = true;
 
         /// <summary>
         /// Gets or sets whether to include all baggage of the log event in the document
@@ -55,21 +51,16 @@ namespace NLog.OpenTelemetry
         public bool IncludeBaggage { get; set; } = true;
 
         /// <summary>
-        /// Gets or sets a comma separated list of excluded properties when setting <see cref="OtelTarget.IncludeAllProperties"/>
+        /// Gets or sets whether to include all activity tags of the log event in the document
         /// </summary>
-        public string ExcludedProperties { get; set; }
+        public bool IncludeTags { get; set; } = true;
 
-        /// <summary>
-        /// Gets or sets a list of additional fields to add to the elasticsearch document.
-        /// </summary>
-        [ArrayParameter(typeof(Serilog.NLog.Attribute), "attribute")]
-        public IList<Serilog.NLog.Attribute> Attributes { get; set; } = new List<Serilog.NLog.Attribute>();
 
         /// <summary>
         /// Gets or sets a list of additional resource attributes to add to the elasticsearch document.
         /// </summary>
-        [ArrayParameter(typeof(Serilog.NLog.Attribute), "attribute")]
-        public IList<Serilog.NLog.Attribute> ResourceAttributes { get; set; } = new List<Serilog.NLog.Attribute>();
+        [ArrayParameter(typeof(Serilog.NLog.Attribute), "contextproperty")]
+        public IList<TargetPropertyWithContext> ResourceAttributes { get; set; } = new List<TargetPropertyWithContext>();
 
         /// <summary>
         /// <inheritdoc cref="OtelTarget.IncludeDefaultFields"/>
@@ -90,7 +81,6 @@ namespace NLog.OpenTelemetry
         private IExporter grpcExporter;
 
         private ExportLogsServiceRequest _requestTemplate;
-        private HashSet<string> _excludedProperties;
         
 
         /// <summary>
@@ -126,11 +116,6 @@ namespace NLog.OpenTelemetry
 
             try
             {
-                if (!string.IsNullOrEmpty(ExcludedProperties))
-                    _excludedProperties =
-                        new HashSet<string>(
-                            ExcludedProperties.Split(new[] {','}, StringSplitOptions.RemoveEmptyEntries));
-
                 Layout = Layout.FromString("${message:withexception=false}");
 
                 var eventInfo = LogEventInfo.CreateNullEvent();
@@ -242,7 +227,13 @@ namespace NLog.OpenTelemetry
                     WriteLogEntry(request, asyncLogEvent);
                 }
 
+                if (_sw == null)
+                {
+                    _sw = new Stopwatch();
+                    _sw.Start();
+                }
                 grpcExporter.Export(request);
+                Console.WriteLine($"{_counter++}:{request.ResourceLogs[0].ScopeLogs[0].LogRecords.Count} ({_sw.Elapsed.TotalSeconds})");
             }
             catch (Exception e)
             {
@@ -251,6 +242,8 @@ namespace NLog.OpenTelemetry
             }
         }
 
+        private int _counter = 0;
+        private Stopwatch? _sw;
         private void WriteLogEntry(ExportLogsServiceRequest request, AsyncLogEventInfo asyncLogEvent)
         {
             try
@@ -267,12 +260,11 @@ namespace NLog.OpenTelemetry
                     Attributes = { }
                 };
 
+                ProcessProperties(logRecord, logEvent);
                 ProcessTraceContext(logRecord);
                 ProcessDefaultAttributes(logRecord, logEvent);
-                ProcessAttributes(logRecord, logEvent);
-                ProcessBaggage(logRecord);
+                ProcessBaggageAndTags(logRecord);
                 ProcessMessageTemplate(logRecord, logEvent);
-                ProcessProperties(logRecord, logEvent);
                 ProcessException(logRecord, logEvent);
 
                 request.ResourceLogs[0].ScopeLogs[0].LogRecords.Add(logRecord);
@@ -304,18 +296,18 @@ namespace NLog.OpenTelemetry
         {
             if (IncludeProcessInfo)
             {
-                AddAttributeFromLayout(eventInfo, "process.name", "${processname}");
-                AddAttributeFromLayout(eventInfo, "process.id", "${processid}");
+                _defaultAttributes.Add(AddAttributeFromLayout(eventInfo, "process.name", "${processname}"));
+                _defaultAttributes.Add(AddAttributeFromLayout(eventInfo, "process.id", "${processid}"));
             }
         }
 
-        private void AddAttributeFromLayout(LogEventInfo eventInfo, string name, string layout)
+        private KeyValue AddAttributeFromLayout(LogEventInfo eventInfo, string name, string layout)
         {
             var processLayout = Layout.FromString(layout);
             var processName = processLayout.Render(eventInfo);
             var processNameAttribute = PrimitiveConversions.NewAttribute(name,
                 PrimitiveConversions.ToOpenTelemetryScalar(processName));
-            _defaultAttributes.Add(processNameAttribute);
+            return processNameAttribute;
         }
 
         private void ProcessDefaultAttributes(LogRecord logRecord, LogEventInfo logEvent)
@@ -329,60 +321,67 @@ namespace NLog.OpenTelemetry
 
             logRecord.Attributes.Add(_defaultAttributes);
 
-            if (IncludeClassInfo)
+            if (IncludeCallSite)
             {
-                AddAttributeFromLayout(logEvent, "code.class", "${callsite:className=true:methodName=false:fileName=false:includeSourcePath=false}");
-                AddAttributeFromLayout(logEvent, "code.method", "${callsite:className=false:methodName=true:fileName=false:includeSourcePath=false}");
+                logRecord.Attributes.Add(AddAttributeFromLayout(logEvent, "code.class", logEvent.CallerClassName));
+                logRecord.Attributes.Add(AddAttributeFromLayout(logEvent, "code.method", logEvent.CallerMemberName));
             }
 
             if (IncludeThreadInfo)
             {
-                AddAttributeFromLayout(logEvent, "thread.name", "${threadname}");
-                AddAttributeFromLayout(logEvent, "thread.id", "${threadid}");
+                logRecord.Attributes.Add(AddAttributeFromLayout(logEvent, "thread.name", "${threadname}"));
+                logRecord.Attributes.Add(AddAttributeFromLayout(logEvent, "thread.id", "${threadid}"));
             }
         }
 
-        private void ProcessAttributes(LogRecord logRecord, LogEventInfo logEvent)
+        
+
+        private void ProcessBaggageAndTags(LogRecord logRecord)
         {
             try
             {
-                foreach (var attribute in Attributes)
+                if (IncludeBaggage)
                 {
-                    var renderedField = RenderLogEvent(attribute.Layout, logEvent);
-                    var v = PrimitiveConversions.ToOpenTelemetryScalar(renderedField);
-                    if (!string.IsNullOrEmpty(renderedField))
+                    var activityBaggage = Activity.Current?.Baggage
+                        .ToDictionary(pair => pair.Key, pair => pair.Value)
+                        .Where(baggageItem => baggageItem.Value != null);
+
+                    if (activityBaggage == null) return;
+
+                    foreach (var baggageItem in activityBaggage)
                     {
-                        logRecord.Attributes.Add(PrimitiveConversions.NewAttribute(attribute.Name, v));
+                        logRecord.Attributes.Add(
+                            PrimitiveConversions.NewStringAttribute($"baggage.{baggageItem.Key}",
+                                baggageItem.Value!));
                     }
                 }
             }
             catch (Exception e)
             {
-                InternalLogger.Error(e.FlattenToActualException(), "Error processing Attributes");
-                throw;
+                InternalLogger.Error(e.FlattenToActualException(), "Error processing Baggage");
             }
-        }
 
-        private void ProcessBaggage(LogRecord logRecord)
-        {
             try
             {
-                if (!IncludeBaggage) return;
-
-                var activityBaggage = Activity.Current?.Baggage
-                    .ToDictionary(pair => pair.Key, pair => pair.Value)
-                    .Where(baggageItem => baggageItem.Value != null);
-
-                foreach (var baggageItem in activityBaggage!)
+                if (IncludeTags)
                 {
-                    logRecord.Attributes.Add(
-                        PrimitiveConversions.NewStringAttribute($"baggage.{baggageItem.Key}",
-                            baggageItem.Value!));
+                    var tags = Activity.Current?.Tags
+                        .ToDictionary(pair => pair.Key, pair => pair.Value)
+                        .Where(baggageItem => baggageItem.Value != null);
+
+                    if (tags == null) return;
+
+                    foreach (var tagItem in tags)
+                    {
+                        logRecord.Attributes.Add(
+                            PrimitiveConversions.NewStringAttribute($"tags.{tagItem.Key}",
+                                tagItem.Value!));
+                    }
                 }
             }
             catch (Exception e)
             {
-                InternalLogger.Error(e.FlattenToActualException(), "Error processing Baggage");
+                InternalLogger.Error(e.FlattenToActualException(), "Error processing Tags");
             }
         }
 
@@ -417,23 +416,23 @@ namespace NLog.OpenTelemetry
         {
             try
             {
-                if (!logEvent.HasProperties || !IncludeAllProperties) return;
-
-                foreach (var property in logEvent.Properties)
+                var p = GetAllProperties(logEvent);
+                foreach (var property in p)
                 {
-                    var propertyKey = property.Key.ToString();
+                    var propertyKey = property.Key;
                     if (propertyKey == null) continue;
 
-                    if (_excludedProperties?.Contains(propertyKey) == true)
-                        continue;
+                    //var isPrimitive = property.Value.GetType().;
+                    //var data = isPrimitive ? property.Value.ToString() : JsonConvert.SerializeObject(property.Value);//
+                    //logRecord.Attributes.Add(PrimitiveConversions.NewStringAttribute($"{propertyKey}", data));
 
-                    // Uncomment to use Serilog OTEL Object Convertor
-                    // ----------------------------------------------------------------------------------------
-                    //var v = _otelPropertyConvertor.ConvertObjectToAnyValue(property.Value);
-                    //logRecord.Attributes.Add(PrimitiveConversions.NewAttribute($"{propertyKey}", v));
+                    var data = PrimitiveConversions.ToSerializedOpenTelemetryPrimitive(property.Value);
+                    logRecord.Attributes.Add(PrimitiveConversions.NewAttribute($"{propertyKey}", data));
 
-                    var data = JsonConvert.SerializeObject(property.Value);
-                    logRecord.Attributes.Add(PrimitiveConversions.NewStringAttribute($"{propertyKey}", data));
+                    //    // Uncomment to use Serilog OTEL Object Convertor
+                    //    // ----------------------------------------------------------------------------------------
+                    //    //var v = _otelPropertyConvertor.ConvertObjectToAnyValue(property.Value);
+                    //    //logRecord.Attributes.Add(PrimitiveConversions.NewAttribute($"{propertyKey}", v));
                 }
             }
             catch (Exception e)

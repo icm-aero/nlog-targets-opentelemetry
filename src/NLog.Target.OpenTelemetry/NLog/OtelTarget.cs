@@ -157,7 +157,7 @@ namespace NLog.OpenTelemetry
 
                 if (!string.IsNullOrEmpty(otlpHeadersString))
                 {
-                    var keyValuePairs = otlpHeadersString.Split(new[] {','}, StringSplitOptions.RemoveEmptyEntries);
+                    var keyValuePairs = otlpHeadersString!.Split(new[] {','}, StringSplitOptions.RemoveEmptyEntries);
                     foreach (var keyValue in keyValuePairs)
                     {
                         var pair = keyValue.Split(new[] {'='}, StringSplitOptions.RemoveEmptyEntries);

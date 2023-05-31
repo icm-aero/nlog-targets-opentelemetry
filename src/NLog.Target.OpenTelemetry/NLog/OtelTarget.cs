@@ -1,6 +1,6 @@
-﻿using System.Diagnostics;
-using System.Reflection;
-using Newtonsoft.Json;
+﻿using System.Collections.Concurrent;
+using System.Diagnostics;
+using Google.Protobuf.Collections;
 using NLog.Common;
 using NLog.Config;
 using NLog.Layouts;
@@ -8,7 +8,6 @@ using NLog.Targets;
 using OpenTelemetry.Proto.Collector.Logs.V1;
 using OpenTelemetry.Proto.Common.V1;
 using OpenTelemetry.Proto.Logs.V1;
-using OpenTelemetry.Trace;
 using Serilog.Sinks.OpenTelemetry;
 using Serilog.Sinks.OpenTelemetry.ProtocolHelpers;
 
@@ -60,17 +59,11 @@ namespace NLog.OpenTelemetry
         /// Gets or sets a list of additional resource attributes to add to the elasticsearch document.
         /// </summary>
         [ArrayParameter(typeof(Serilog.NLog.Attribute), "contextproperty")]
-        public IList<TargetPropertyWithContext> ResourceAttributes { get; set; } = new List<TargetPropertyWithContext>();
-
-        /// <summary>
-        /// <inheritdoc cref="OtelTarget.IncludeDefaultFields"/>
-        /// </summary>
-        public bool IncludeDefaultFields { get; set; } = true;
+        public IList<TargetPropertyWithContext> ResourceAttributes { get; set; } =
+            new List<TargetPropertyWithContext>();
 
         public bool IncludeProcessInfo { get; set; } = true;
         public bool IncludeThreadInfo { get; set; } = true;
-
-        public bool IncludeClassInfo { get; set; } = true;
 
         public bool IncludeMessageTemplateText { get; set; } = false;
 
@@ -81,23 +74,25 @@ namespace NLog.OpenTelemetry
         private IExporter grpcExporter;
 
         private ExportLogsServiceRequest _requestTemplate;
-        
+
+        private readonly ConcurrentDictionary<string, Layout> _resourceAttributes = new();
+
 
         /// <summary>
         /// A https://messagetemplates.org template, as text. For example, the string <c>Hello {Name}!</c>.
         /// </summary>
         /// <remarks>See also https://opentelemetry.io/docs/reference/specification/logs/semantic_conventions/ and
-        /// <see cref="TraceSemanticConventions"/>.</remarks>
+        /// <see cref="SemanticConventions"/>.</remarks>
         public const string AttributeMessageTemplateText = "message_template.text";
 
         /// <summary>
         /// A https://messagetemplates.org template, hashed using MD5 and encoded as a 128-bit hexadecimal value.
         /// </summary>
         /// <remarks>See also https://opentelemetry.io/docs/reference/specification/logs/semantic_conventions/ and
-        /// <see cref="TraceSemanticConventions"/>.</remarks>
+        /// <see cref="SemanticConventions"/>.</remarks>
         public const string AttributeMessageTemplateMD5Hash = "message_template.hash.md5";
 
-        private List<KeyValue> _defaultAttributes = new List<KeyValue>();
+        private readonly List<KeyValue> _defaultAttributes = new();
 
         //private OtelPropertyConvertor _otelPropertyConvertor = new OtelPropertyConvertor();
         public OtelTarget()
@@ -107,7 +102,6 @@ namespace NLog.OpenTelemetry
 
         private void CreateSerilogPropertyValueConverter()
         {
-            
         }
 
         protected override void InitializeTarget()
@@ -121,7 +115,8 @@ namespace NLog.OpenTelemetry
                 var eventInfo = LogEventInfo.CreateNullEvent();
 
                 var otlpProtocol = GetProperty(eventInfo, OtlpProtocol, DefaultEnvOtelExporterOtlpProtocol, "grpc");
-                var otlpEndpoint = GetProperty(eventInfo, OtlpEndpoint, DefaultEnvOtelExporterOtlpEndpoint, "http://localhost:4317");
+                var otlpEndpoint = GetProperty(eventInfo, OtlpEndpoint, DefaultEnvOtelExporterOtlpEndpoint,
+                    "http://localhost:4317");
                 if (!otlpEndpoint.EndsWith("/")) otlpEndpoint += "/";
 
                 var otlpHeaders = GetHeaders(eventInfo);
@@ -143,7 +138,8 @@ namespace NLog.OpenTelemetry
             }
         }
 
-        private string GetProperty(LogEventInfo eventInfo, Layout layout, string environmentVariable, string defaultValue)
+        private string GetProperty(LogEventInfo eventInfo, Layout layout, string environmentVariable,
+            string defaultValue)
         {
             return layout?.Render(eventInfo) ??
                    System.Environment.GetEnvironmentVariable(environmentVariable) ??
@@ -159,10 +155,10 @@ namespace NLog.OpenTelemetry
                                         System.Environment.GetEnvironmentVariable(DefaultEnvOtelExporterOtlpHeaders);
                 if (!string.IsNullOrEmpty(otlpHeadersString))
                 {
-                    var keyValuePairs = otlpHeadersString.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+                    var keyValuePairs = otlpHeadersString.Split(new[] {','}, StringSplitOptions.RemoveEmptyEntries);
                     foreach (var keyValue in keyValuePairs)
                     {
-                        var pair = keyValue.Split(new[] { '=' }, StringSplitOptions.RemoveEmptyEntries);
+                        var pair = keyValue.Split(new[] {'='}, StringSplitOptions.RemoveEmptyEntries);
                         if (pair.Length == 2)
                         {
                             otlpHeaders[pair[0].Trim()] = pair[1].Trim();
@@ -183,13 +179,6 @@ namespace NLog.OpenTelemetry
         {
             try
             {
-                var serviceName = ServiceName?.Render(eventInfo) ??
-                                  System.Environment.GetEnvironmentVariable(DefaultEnvOtelServiceName);
-                var serviceVersion = ServiceVersion?.Render(eventInfo) ??
-                                     System.Environment.GetEnvironmentVariable(DefaultEnvOtelServiceVersion);
-                var environment = Environment?.Render(eventInfo) ??
-                                  System.Environment.GetEnvironmentVariable(DefaultEnvDeploymentEnvName);
-
                 var fullSemVer = GitVersionInformation.FullSemVer;
                 var resources = new Dictionary<string, object>
                 {
@@ -198,16 +187,9 @@ namespace NLog.OpenTelemetry
                     ["telemetry.sdk.version"] = fullSemVer,
                     ["ddsource"] = "csharp"
                 };
-                if (serviceName != null) resources.Add("service.name", serviceName);
-                if (serviceVersion != null) resources.Add("service.version", serviceVersion);
-                if (environment != null) resources.Add("deployment.environment", environment);
 
-                foreach (var attribute in ResourceAttributes)
-                {
-                    var value = attribute.Layout.Render(eventInfo);
-                    resources.Add(attribute.Name, value);
-                }
                 _requestTemplate = RequestTemplateFactory.CreateRequestTemplate(resources);
+                InitializeResourceAttributes(_requestTemplate, eventInfo);
             }
             catch (Exception e)
             {
@@ -216,10 +198,72 @@ namespace NLog.OpenTelemetry
             }
         }
 
+        private void InitializeResourceAttributes(ExportLogsServiceRequest request, LogEventInfo eventInfo)
+        {
+            try
+            {
+                var resources = request.ResourceLogs[0].Resource.Attributes;
+
+                ProcessCoreResourceAttributes(eventInfo, resources, "service.name", ServiceName, DefaultEnvOtelServiceName);
+                ProcessCoreResourceAttributes(eventInfo, resources, "service.version", ServiceVersion,
+                    DefaultEnvOtelServiceVersion);
+                ProcessCoreResourceAttributes(eventInfo, resources, "deployment.environment", Environment,
+                    DefaultEnvDeploymentEnvName);
+
+                foreach (var attribute in ResourceAttributes)
+                    ProcessCoreResourceAttributes(eventInfo, resources, attribute.Name, attribute.Layout);
+            }
+            catch (Exception e)
+            {
+                InternalLogger.Error(e.FlattenToActualException(), "Error initializing resource attributes");
+                throw;
+            }
+        }
+
+        private void ProcessCoreResourceAttributes(LogEventInfo eventInfo, RepeatedField<KeyValue> resourceAttributes,
+            string name, Layout? layout, string? environmentVar = null)
+        {
+            var resourceValue = layout?.Render(eventInfo);
+            if (string.IsNullOrEmpty(resourceValue) && environmentVar != null)
+                resourceValue = System.Environment.GetEnvironmentVariable(environmentVar);
+
+            if (!string.IsNullOrEmpty(resourceValue))
+                resourceAttributes.Add(PrimitiveConversions.NewStringAttribute(name, resourceValue!));
+            else if (layout != null) _resourceAttributes[name] = layout;
+        }
+
+        private void CheckResourceAttributes()
+        {
+            try
+            {
+                if (!_resourceAttributes.Any()) return;
+
+                var eventInfo = LogEventInfo.CreateNullEvent();
+
+                foreach (var key in _resourceAttributes.Keys.ToList())
+                {
+                    if (!_resourceAttributes.TryGetValue(key, out var layout)) continue;
+
+                    var resourceValue = layout?.Render(eventInfo);
+                    if (!string.IsNullOrEmpty(resourceValue))
+                    {
+                        _resourceAttributes.TryRemove(key, out _);
+                        var resourceAttribute = PrimitiveConversions.NewStringAttribute(key, resourceValue!);
+                        _requestTemplate.ResourceLogs[0].Resource.Attributes.Add(resourceAttribute);
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                InternalLogger.Error(e.FlattenToActualException(), "Error processing resource attributes");
+            }
+        }
+
         protected override void Write(IList<AsyncLogEventInfo> logEvents)
         {
             try
             {
+                CheckResourceAttributes();
                 var request = _requestTemplate.Clone();
 
                 foreach (var asyncLogEvent in logEvents)
@@ -227,13 +271,7 @@ namespace NLog.OpenTelemetry
                     WriteLogEntry(request, asyncLogEvent);
                 }
 
-                if (_sw == null)
-                {
-                    _sw = new Stopwatch();
-                    _sw.Start();
-                }
                 grpcExporter.Export(request);
-                Console.WriteLine($"{_counter++}:{request.ResourceLogs[0].ScopeLogs[0].LogRecords.Count} ({_sw.Elapsed.TotalSeconds})");
             }
             catch (Exception e)
             {
@@ -242,8 +280,6 @@ namespace NLog.OpenTelemetry
             }
         }
 
-        private int _counter = 0;
-        private Stopwatch? _sw;
         private void WriteLogEntry(ExportLogsServiceRequest request, AsyncLogEventInfo asyncLogEvent)
         {
             try
@@ -253,7 +289,7 @@ namespace NLog.OpenTelemetry
 
                 var logRecord = new LogRecord
                 {
-                    Body = new AnyValue { StringValue = logMessage },
+                    Body = new AnyValue {StringValue = logMessage},
                     TimeUnixNano = PrimitiveConversions.ToUnixNano(logEvent.TimeStamp),
                     SeverityText = logEvent.Level.ToString(),
                     SeverityNumber = PrimitiveConversions.ToSeverityNumber(logEvent.Level),
@@ -334,7 +370,7 @@ namespace NLog.OpenTelemetry
             }
         }
 
-        
+
 
         private void ProcessBaggageAndTags(LogRecord logRecord)
         {
@@ -422,10 +458,6 @@ namespace NLog.OpenTelemetry
                     var propertyKey = property.Key;
                     if (propertyKey == null) continue;
 
-                    //var isPrimitive = property.Value.GetType().;
-                    //var data = isPrimitive ? property.Value.ToString() : JsonConvert.SerializeObject(property.Value);//
-                    //logRecord.Attributes.Add(PrimitiveConversions.NewStringAttribute($"{propertyKey}", data));
-
                     var data = PrimitiveConversions.ToSerializedOpenTelemetryPrimitive(property.Value);
                     logRecord.Attributes.Add(PrimitiveConversions.NewAttribute($"{propertyKey}", data));
 
@@ -449,13 +481,16 @@ namespace NLog.OpenTelemetry
                 if (ex == null) return;
 
                 var attrs = logRecord.Attributes;
-                attrs.Add(PrimitiveConversions.NewStringAttribute(TraceSemanticConventions.AttributeExceptionType, ex.GetType().ToString()));
+                attrs.Add(PrimitiveConversions.NewStringAttribute(SemanticConventions.AttributeExceptionType,
+                    ex.GetType().ToString()));
 
                 if (ex.Message != "")
-                    attrs.Add(PrimitiveConversions.NewStringAttribute(TraceSemanticConventions.AttributeExceptionMessage, ex.Message));
+                    attrs.Add(PrimitiveConversions.NewStringAttribute(SemanticConventions.AttributeExceptionMessage,
+                        ex.Message));
 
                 if (ex.ToString() != "")
-                    attrs.Add(PrimitiveConversions.NewStringAttribute(TraceSemanticConventions.AttributeExceptionStacktrace, ex.ToString()));
+                    attrs.Add(PrimitiveConversions.NewStringAttribute(SemanticConventions.AttributeExceptionStacktrace,
+                        ex.ToString()));
             }
             catch (Exception e)
             {
@@ -465,3 +500,4 @@ namespace NLog.OpenTelemetry
         }
     }
 }
+    

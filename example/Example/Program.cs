@@ -39,7 +39,15 @@ static class Program
         GlobalDiagnosticsContext.Set("GlobalId", "1.2.3");
         Console.WriteLine("Press any key to start");
         Console.ReadKey();
-        
+
+        Logger.Info("Starting Service");
+
+        Console.WriteLine("Press any key to start to send logs");
+        Console.ReadKey();
+
+        GlobalDiagnosticsContext.Set("ServiceName", "test-logging-service");
+        Logger.Info("Initializing Service");
+
         // create an ActivitySource (that is listened to) for creating an Activity
         // to test the trace and span ID enricher
         using var listener = new ActivityListener
@@ -141,7 +149,8 @@ static class Program
         //for (int i = 0; i <= 4; i++)
         {
             //Console.WriteLine($"Running Batch: {i}");
-            var send = Parallel.For(0, 10000, (i) =>
+            //var send = Parallel.For(0, 10000, (i) =>
+            var i = 1;
             {
             //    Logger.Trace("Starting");
                 Logger.Info("NLog Hallo Person with @ {@person}", person);
@@ -152,7 +161,7 @@ static class Program
                 //Logger.Info("NLog Hallo Person with 0 {0}", person);
                 //Logger.Info("NLog Hallo Person {person}", "foo");
             }
-            );
+            //);
 
             int count = 1;
             do

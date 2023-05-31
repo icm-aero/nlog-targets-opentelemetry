@@ -3,6 +3,7 @@
     "Example": {
       "commandName": "Project",
       "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "develop",
         "ELASTIC_CLIENT_APIVERSIONING": "true"
       }
     }

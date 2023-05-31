@@ -151,8 +151,10 @@ namespace NLog.OpenTelemetry
             try
             {
                 var otlpHeaders = new Dictionary<string, string>();
-                var otlpHeadersString = OtlpHeaders?.Render(eventInfo) ??
-                                        System.Environment.GetEnvironmentVariable(DefaultEnvOtelExporterOtlpHeaders);
+                var otlpHeadersString = OtlpHeaders?.Render(eventInfo);
+                if(string.IsNullOrEmpty(otlpHeadersString))
+                    otlpHeadersString = System.Environment.GetEnvironmentVariable(DefaultEnvOtelExporterOtlpHeaders);
+
                 if (!string.IsNullOrEmpty(otlpHeadersString))
                 {
                     var keyValuePairs = otlpHeadersString.Split(new[] {','}, StringSplitOptions.RemoveEmptyEntries);

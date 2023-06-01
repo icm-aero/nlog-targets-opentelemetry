@@ -52,15 +52,15 @@
 		</PackageReference>
 		<PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.2.0" />
 		<PackageReference Include="NLog" Version="4.7.0" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
 	</ItemGroup>
 
   <ItemGroup Condition=" '$(TargetFramework)' == 'net462' ">
     <PackageReference Include="Grpc" Version="2.46.5" />
-    <PackageReference Include="Grpc.Net.Client" Version="2.50.0" />
+    <PackageReference Include="Grpc.Net.Client" Version="2.30.0" />
   </ItemGroup>
   <ItemGroup Condition=" '$(TargetFramework)' == 'netstandard2.0' ">
     <PackageReference Include="Grpc" Version="2.46.5" />
-    <PackageReference Include="Grpc.Net.Client" Version="2.50.0" />
+    <PackageReference Include="Grpc.Net.Client" Version="2.30.0" />
   </ItemGroup>
 </Project>

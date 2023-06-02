@@ -1,10 +1,14 @@
-﻿using System.Collections.Concurrent;
+﻿using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using Google.Protobuf.Collections;
 using NLog.Common;
 using NLog.Config;
 using NLog.Layouts;
 using NLog.Targets;
+using NLog.Targets.OpenTelemetry.NLog;
+using OpenTelemetry;
 using OpenTelemetry.Proto.Collector.Logs.V1;
 using OpenTelemetry.Proto.Common.V1;
 using OpenTelemetry.Proto.Logs.V1;
@@ -95,6 +99,14 @@ namespace NLog.OpenTelemetry
         private readonly List<KeyValue> _defaultAttributes = new();
 
         //private OtelPropertyConvertor _otelPropertyConvertor = new OtelPropertyConvertor();
+
+        public OtelTraceContextLayout OtelTraceContextLayout { get; set; } = new OtelTraceContextLayout();
+
+        public OtelBaggageLayout OtelBaggageLayout { get; set; }
+
+        public OtelTagsLayout OtelTagsLayout { get; set; } 
+
+
         public OtelTarget()
         {
             CreateSerilogPropertyValueConverter();
@@ -106,6 +118,11 @@ namespace NLog.OpenTelemetry
 
         protected override void InitializeTarget()
         {
+            if (IncludeBaggage)
+                OtelBaggageLayout = new OtelBaggageLayout();
+            if(IncludeTags)
+                OtelTagsLayout = new OtelTagsLayout();
+
             base.InitializeTarget();
 
             try
@@ -287,6 +304,7 @@ namespace NLog.OpenTelemetry
             try
             {
                 var logEvent = asyncLogEvent.LogEvent;
+
                 string logMessage = Layout.Render(logEvent);
 
                 var logRecord = new LogRecord
@@ -298,10 +316,11 @@ namespace NLog.OpenTelemetry
                     Attributes = { }
                 };
 
+                ProcessTraceContext(logRecord, logEvent);
+                ProcessBaggageAndTags(logRecord, logEvent);
+
                 ProcessProperties(logRecord, logEvent);
-                ProcessTraceContext(logRecord);
                 ProcessDefaultAttributes(logRecord, logEvent);
-                ProcessBaggageAndTags(logRecord);
                 ProcessMessageTemplate(logRecord, logEvent);
                 ProcessException(logRecord, logEvent);
 
@@ -313,15 +332,18 @@ namespace NLog.OpenTelemetry
             }
         }
 
-        private void ProcessTraceContext(LogRecord logRecord)
+        private void ProcessTraceContext(LogRecord logRecord, LogEventInfo logEvent)
         {
             try
             {
-                var traceId = Activity.Current?.TraceId.ToHexString();
-                if (traceId != null) logRecord.TraceId = PrimitiveConversions.ToOpenTelemetryTraceId(traceId);
+                var traceContext = OtelTraceContextLayout.RetrieveTraceContext(logEvent);
+                if (traceContext == null) return;
 
-                var spanId = Activity.Current?.SpanId.ToHexString();
-                if (spanId != null) logRecord.SpanId = PrimitiveConversions.ToOpenTelemetrySpanId(spanId);
+                if (traceContext.TraceId != null) 
+                    logRecord.TraceId = PrimitiveConversions.ToOpenTelemetryTraceId(traceContext.TraceId);
+
+                if (traceContext.SpanId != null) 
+                    logRecord.SpanId = PrimitiveConversions.ToOpenTelemetrySpanId(traceContext.SpanId);
 
             }
             catch (Exception e)
@@ -348,21 +370,26 @@ namespace NLog.OpenTelemetry
             return processNameAttribute;
         }
 
+        private KeyValue AddAttributeFromString(string name, string value)
+        {
+            var processNameAttribute = PrimitiveConversions.NewAttribute(name,
+                PrimitiveConversions.ToOpenTelemetryString(value));
+            return processNameAttribute;
+        }
+
         private void ProcessDefaultAttributes(LogRecord logRecord, LogEventInfo logEvent)
         {
             if (logEvent.LoggerName != null)
-                logRecord.Attributes.Add(PrimitiveConversions.NewAttribute("logger",
-                    PrimitiveConversions.ToOpenTelemetryScalar(logEvent.LoggerName)));
+                logRecord.Attributes.Add(AddAttributeFromString("logger", logEvent.LoggerName));
 
-            logRecord.Attributes.Add(PrimitiveConversions.NewAttribute("ddsource",
-                PrimitiveConversions.ToOpenTelemetryScalar("csharp")));
+            logRecord.Attributes.Add(AddAttributeFromString("ddsource","csharp"));
 
             logRecord.Attributes.Add(_defaultAttributes);
 
             if (IncludeCallSite)
             {
-                logRecord.Attributes.Add(AddAttributeFromLayout(logEvent, "code.class", logEvent.CallerClassName));
-                logRecord.Attributes.Add(AddAttributeFromLayout(logEvent, "code.method", logEvent.CallerMemberName));
+                logRecord.Attributes.Add(AddAttributeFromString("code.class", logEvent.CallerClassName));
+                logRecord.Attributes.Add(AddAttributeFromString("code.method", logEvent.CallerMemberName));
             }
 
             if (IncludeThreadInfo)
@@ -372,17 +399,14 @@ namespace NLog.OpenTelemetry
             }
         }
 
-
-
-        private void ProcessBaggageAndTags(LogRecord logRecord)
+        private void ProcessBaggageAndTags(LogRecord logRecord, LogEventInfo logEvent)
         {
             try
             {
                 if (IncludeBaggage)
                 {
-                    var activityBaggage = Activity.Current?.Baggage
-                        .ToDictionary(pair => pair.Key, pair => pair.Value)
-                        .Where(baggageItem => baggageItem.Value != null);
+                    var activityBaggage = OtelBaggageLayout.RetrieveBaggage(logEvent)
+                        ?.Where(baggageItem => baggageItem.Value != null);
 
                     if (activityBaggage == null) return;
 
@@ -403,9 +427,8 @@ namespace NLog.OpenTelemetry
             {
                 if (IncludeTags)
                 {
-                    var tags = Activity.Current?.Tags
-                        .ToDictionary(pair => pair.Key, pair => pair.Value)
-                        .Where(baggageItem => baggageItem.Value != null);
+                    var tags = OtelTagsLayout.RetrieveTags(logEvent)
+                        ?.Where(baggageItem => baggageItem.Value != null);
 
                     if (tags == null) return;
 

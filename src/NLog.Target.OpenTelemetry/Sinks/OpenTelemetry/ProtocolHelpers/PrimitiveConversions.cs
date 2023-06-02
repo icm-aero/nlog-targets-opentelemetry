@@ -148,6 +148,11 @@ static class PrimitiveConversions
         return ToOpenTelemetryPrimitive(scalar);
     }
 
+    public static AnyValue ToOpenTelemetryString(string value)
+    {
+        return new AnyValue {StringValue = value};
+    }
+
     /*
     public static AnyValue ToOpenTelemetryScalar(ScalarValue scalar)
     {

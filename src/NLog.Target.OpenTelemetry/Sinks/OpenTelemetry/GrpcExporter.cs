@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#if NET5_0_OR_GREATER
+
 using Grpc.Core;
 using Grpc.Net.Client;
 using OpenTelemetry.Proto.Collector.Logs.V1;
@@ -47,12 +49,13 @@ sealed class GrpcExporter : IExporter, IDisposable
         HttpMessageHandler? httpMessageHandler = null)
     {
         var grpcChannelOptions = new GrpcChannelOptions();
+
         if (httpMessageHandler != null)
         {
             grpcChannelOptions.HttpClient = new HttpClient(httpMessageHandler);
             grpcChannelOptions.DisposeHttpClient = true;
         };
-        
+
         _channel = GrpcChannel.ForAddress(endpoint, grpcChannelOptions);
         _client = new LogsService.LogsServiceClient(_channel);
         _headers = new Metadata();
@@ -81,3 +84,5 @@ sealed class GrpcExporter : IExporter, IDisposable
         return _client.ExportAsync(request, _headers).ResponseAsync;
     }
 }
+
+#endif

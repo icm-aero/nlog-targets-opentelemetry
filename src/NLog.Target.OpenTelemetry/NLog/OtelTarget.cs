@@ -1,14 +1,10 @@
-﻿using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Diagnostics;
+﻿using System.Collections.Concurrent;
 using Google.Protobuf.Collections;
 using NLog.Common;
 using NLog.Config;
 using NLog.Layouts;
 using NLog.Targets;
 using NLog.Targets.OpenTelemetry.NLog;
-using OpenTelemetry;
 using OpenTelemetry.Proto.Collector.Logs.V1;
 using OpenTelemetry.Proto.Common.V1;
 using OpenTelemetry.Proto.Logs.V1;
@@ -73,7 +69,6 @@ namespace NLog.OpenTelemetry
 
         public bool IncludeMessageTemplateMD5Hash { get; set; } = false;
 
-
         //private readonly SimpleLogRecordExportProcessor exporter;
         private IExporter grpcExporter;
 
@@ -134,13 +129,26 @@ namespace NLog.OpenTelemetry
                 var otlpProtocol = GetProperty(eventInfo, OtlpProtocol, DefaultEnvOtelExporterOtlpProtocol, "grpc");
                 var otlpEndpoint = GetProperty(eventInfo, OtlpEndpoint, DefaultEnvOtelExporterOtlpEndpoint,
                     "http://localhost:4317");
+
+#if !NET5_0_OR_GREATER                
+                otlpProtocol = "http";
+                var uri = new UriBuilder(otlpEndpoint);
+                if (uri.Port == 4317)
+                {
+                    InternalLogger.Info("Forcing OTEL Protocol from GRPC(4317) to HTTP(4318)");
+                    uri.Port = 4318;
+                    otlpEndpoint = uri.ToString();
+                }
+#endif
                 if (!otlpEndpoint.EndsWith("/")) otlpEndpoint += "/";
 
                 var otlpHeaders = GetHeaders(eventInfo);
 
                 grpcExporter = otlpProtocol switch
                 {
+#if NET5_0_OR_GREATER
                     "grpc" => new GrpcExporter($"{otlpEndpoint}v1/logs", otlpHeaders),
+#endif
                     "http" => new HttpExporter($"{otlpEndpoint}v1/logs", otlpHeaders),
                     _ => throw new ArgumentException("Invalid OTLP Protocol, supported options: grpc, http")
                 };

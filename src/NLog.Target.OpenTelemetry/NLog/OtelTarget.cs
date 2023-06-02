@@ -76,6 +76,18 @@ namespace NLog.OpenTelemetry
 
         private readonly ConcurrentDictionary<string, Layout> _resourceAttributes = new();
 
+        /// <summary>
+        /// Gets or sets a comma separated list of excluded tags />
+        /// </summary>
+        public string ExcludedTags { get; set; }
+
+        private HashSet<string> _excludedTags = new(new[]
+        {
+            "correlationId",
+            "process.id",
+            "process.name"
+        });
+
 
         /// <summary>
         /// A https://messagetemplates.org template, as text. For example, the string <c>Hello {Name}!</c>.
@@ -123,6 +135,9 @@ namespace NLog.OpenTelemetry
             try
             {
                 Layout = Layout.FromString("${message:withexception=false}");
+
+                if (!string.IsNullOrEmpty(ExcludedTags))
+                    _excludedTags = new HashSet<string>(ExcludedTags.Split(new[] {','}, StringSplitOptions.RemoveEmptyEntries));
 
                 var eventInfo = LogEventInfo.CreateNullEvent();
 
@@ -436,7 +451,7 @@ namespace NLog.OpenTelemetry
                 if (IncludeTags)
                 {
                     var tags = OtelTagsLayout.RetrieveTags(logEvent)
-                        ?.Where(baggageItem => baggageItem.Value != null);
+                        ?.Where(baggageItem => baggageItem.Value != null && !_excludedTags.Contains(baggageItem.Key));
 
                     if (tags == null) return;
 

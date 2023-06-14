@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using NLog;
 using System.Diagnostics;
 using OpenTelemetry;
+using Example.WebApi.CorrelationId;
 
 namespace Example.WebApi.Controllers
 {
@@ -28,6 +29,9 @@ namespace Example.WebApi.Controllers
         [HttpGet(Name = "GetWeatherForecast")]
         public IEnumerable<WeatherForecast> Get()
         {
+            var correlationId = ServiceTracingContext.GetRequestCorrelationId();
+            Console.WriteLine($"Reading CorrelationID: {correlationId}");
+
             Activity.Current?.AddTag("myTag", "SomeValue");
             var trace = Activity.Current?.Context.TraceId;
             var activityBaggage = Baggage.Current.GetBaggage()

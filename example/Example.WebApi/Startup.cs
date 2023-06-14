@@ -3,8 +3,10 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using System.Diagnostics;
+using Example.WebApi.CorrelationId;
 using OpenTelemetry;
 using Microsoft.OpenApi.Models;
+using System.Security.Cryptography;
 
 namespace Example.WebApi
 {
@@ -12,6 +14,7 @@ namespace Example.WebApi
     {
         public const string AspNetEnvironmentVar = "ASPNETCORE_ENVIRONMENT";
         public const string OtelExporterOtlpEndpointVar = "OTEL_EXPORTER_OTLP_ENDPOINT";
+        public const string OtelLogExporterOtlpEndpointVar = "OTEL_LOG_EXPORTER_OTLP_ENDPOINT";
         public const string OtelServiceNameVar = "OTEL_SERVICE_NAME";
         public const string OtelServiceVersionVar = "OTEL_SERVICE_VERSION";
 
@@ -21,8 +24,14 @@ namespace Example.WebApi
         public bool EnableTracing { get; set; } = true;
         public bool AddBaggageToTracing { get; set; } = true;
 
+        public virtual string[] ExcludedBaggage { get; set; } =
+        {
+            CorrelationIdMiddleware.BaggageCorrelationIdHeader
+        };
+
         public virtual string[] TraceFilterList { get; set; } =
         {
+            Environment.GetEnvironmentVariable(OtelExporterOtlpEndpointVar)!
         };
         public virtual string[] TraceOperationFilterList { get; set; } =
         {
@@ -39,6 +48,8 @@ namespace Example.WebApi
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
+            services.AddTransient<CorrelationIdDelegatingHandler>();
+
             //services.AddRazorPages();
             services.AddControllers();
             services.AddSwaggerGen(c =>
@@ -51,6 +62,8 @@ namespace Example.WebApi
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
         {
+            app.UseCorrelationId(new CorrelationIdOptions());
+
             if (env.IsDevelopment())
             {
                 app.UseDeveloperExceptionPage();
@@ -123,40 +136,53 @@ namespace Example.WebApi
 
         protected virtual void AddOpenTelemetryTracing(IServiceCollection services, TracerProviderBuilder builder, ResourceBuilder resourceBuilder)
         {
-
+            //DiagnosticListener.AllListeners.Subscribe(new TestDiagnosticObserver());
+            var correlationIdOptions = new CorrelationIdOptions();
 
             var process = Process.GetCurrentProcess();
             var pid = process.Id;
             var processName = process.ProcessName;
             builder
                 .SetResourceBuilder(resourceBuilder)
-                .AddAspNetCoreInstrumentation(options => options.Enrich = (activity, eventName, eventObject) =>
+                .AddAspNetCoreInstrumentation(options =>
                 {
-                    activity.AddTag("process.id", pid);
-                    activity.AddTag("process.name", processName);
-
-                    if (AddBaggageToTracing)
-                        foreach (var baggage in Baggage.Current)
-                            activity.SetTag($"baggage.{baggage.Key}", baggage.Value);
-
                     options.Filter = FilterIncomingTraces;
+                    options.Enrich = (activity, eventName, eventObject) =>
+                    {
+                        if (eventName != "OnStartActivity") return;
+
+                        var httpRequest = eventObject as HttpRequest;
+                        var correlationId = CorrelationIdMiddleware.GetCorrelationId(httpRequest, correlationIdOptions);
+                        AddBaggageToTracingTags(activity, correlationId!, processName, pid.ToString());
+                    };
                 })
                 .AddHttpClientInstrumentation(options =>
                 {
                     options.Filter = FilterOutgoingTraces;
                     options.Enrich = (activity, eventName, eventObject) =>
                     {
-                        //var correlationId = ServiceTracingContext.GetRequestCorrelationId();
-                        //activity.AddTag("CorellationId", correlationId);
-                        activity.AddTag("process.id", pid);
-                        activity.AddTag("process.name", processName);
+                        if (eventName != "OnStartActivity") return;
 
-                        if (AddBaggageToTracing)
-                            foreach (var baggage in Baggage.Current)
-                                activity.SetTag($"baggage.{baggage.Key}", baggage.Value);
+                        var correlationId = ServiceTracingContext.GetRequestCorrelationId();
+                        AddBaggageToTracingTags(activity, correlationId!, processName, pid.ToString());
                     };
                 })
                 .AddOtlpExporter();
+        }
+
+        protected virtual void AddBaggageToTracingTags(Activity activity, string correlationId, string processName, string processId)
+        {
+            activity.AddTag("correlationId", correlationId);
+            activity.AddTag("process.id", processId);
+            activity.AddTag("process.name", processName);
+
+            if (!AddBaggageToTracing) return;
+
+            var currentBaggage = Baggage.Current.GetBaggage()
+                .Where(pair => !ExcludedBaggage.Contains(pair.Key));
+
+            foreach (var baggage in currentBaggage)
+                activity.SetTag($"baggage.{baggage.Key}", baggage.Value);
         }
 
 
@@ -169,7 +195,12 @@ namespace Example.WebApi
 #if NET5_0_OR_GREATER
         protected virtual bool FilterOutgoingTraces(HttpRequestMessage request)
         {
-            return TraceFilterList.All(s => (request?.RequestUri?.ToString()!).StartsWith(s) != true);
+            var filterList = TraceFilterList.Where(s => !string.IsNullOrEmpty(s));
+            
+            var logEndpoint = Environment.GetEnvironmentVariable(OtelLogExporterOtlpEndpointVar);
+            if(!string.IsNullOrEmpty(logEndpoint)) filterList = filterList.Append(logEndpoint);
+
+            return filterList.All(s => (request?.RequestUri?.ToString()!).StartsWith(s) != true);
         }
 #else
         protected virtual bool FilterOutgoingTraces(HttpWebRequest request)

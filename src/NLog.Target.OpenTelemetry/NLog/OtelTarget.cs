@@ -28,6 +28,8 @@ namespace NLog.OpenTelemetry
         public const string DefaultEnvOtelExporterOtlpProtocol = "OTEL_EXPORTER_OTLP_PROTOCOL";
 
         public const string DefaultEnvOtelExporterOtlpEndpoint = "OTEL_EXPORTER_OTLP_ENDPOINT";
+        
+        public const string DefaultEnvOtelLogExporterOtlpEndpoint = "OTEL_LOG_EXPORTER_OTLP_ENDPOINT";
 
         public const string DefaultEnvOtelExporterOtlpHeaders = "OTEL_EXPORTER_OTLP_HEADERS";
 
@@ -88,6 +90,16 @@ namespace NLog.OpenTelemetry
             "process.name"
         });
 
+        /// <summary>
+        /// Gets or sets a comma separated list of excluded baggage />
+        /// </summary>
+        public string ExcludedBaggage { get; set; }
+
+        private HashSet<string> _excludedBaggage = new(new[]
+        {
+            "x-correlation-id"
+        });
+
 
         /// <summary>
         /// A https://messagetemplates.org template, as text. For example, the string <c>Hello {Name}!</c>.
@@ -139,6 +151,9 @@ namespace NLog.OpenTelemetry
                 if (!string.IsNullOrEmpty(ExcludedTags))
                     _excludedTags = new HashSet<string>(ExcludedTags.Split(new[] {','}, StringSplitOptions.RemoveEmptyEntries));
 
+                if (!string.IsNullOrEmpty(ExcludedBaggage))
+                    _excludedBaggage = new HashSet<string>(ExcludedBaggage.Split(new[] {','}, StringSplitOptions.RemoveEmptyEntries));
+
                 var eventInfo = LogEventInfo.CreateNullEvent();
 
                 var otlpProtocol = GetProperty(eventInfo, OtlpProtocol, DefaultEnvOtelExporterOtlpProtocol, "grpc");
@@ -153,6 +168,7 @@ namespace NLog.OpenTelemetry
                     InternalLogger.Info("Forcing OTEL Protocol from GRPC(4317) to HTTP(4318)");
                     uri.Port = 4318;
                     otlpEndpoint = uri.ToString();
+                    System.Environment.SetEnvironmentVariable(DefaultEnvOtelLogExporterOtlpEndpoint, otlpEndpoint);
                 }
 #endif
                 if (!otlpEndpoint.EndsWith("/")) otlpEndpoint += "/";
@@ -429,7 +445,7 @@ namespace NLog.OpenTelemetry
                 if (IncludeBaggage)
                 {
                     var activityBaggage = OtelBaggageLayout.RetrieveBaggage(logEvent)
-                        ?.Where(baggageItem => baggageItem.Value != null);
+                        ?.Where(baggageItem => baggageItem.Value != null && !_excludedBaggage.Contains(baggageItem.Key));
 
                     if (activityBaggage == null) return;
 
@@ -451,7 +467,7 @@ namespace NLog.OpenTelemetry
                 if (IncludeTags)
                 {
                     var tags = OtelTagsLayout.RetrieveTags(logEvent)
-                        ?.Where(baggageItem => baggageItem.Value != null && !_excludedTags.Contains(baggageItem.Key));
+                        ?.Where(item => item.Value != null && !_excludedTags.Contains(item.Key));
 
                     if (tags == null) return;
 

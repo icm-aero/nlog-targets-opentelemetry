@@ -56,11 +56,16 @@ namespace NLog.OpenTelemetry
         /// </summary>
         public bool IncludeTags { get; set; } = true;
 
+        /// <summary>
+        /// Gets or sets whether to include the correlation id of the log event in the document
+        /// </summary>
+        public bool IncludeCorrelationId { get; set; } = true;
+
 
         /// <summary>
         /// Gets or sets a list of additional resource attributes to add to the elasticsearch document.
         /// </summary>
-        [ArrayParameter(typeof(Serilog.NLog.Attribute), "contextproperty")]
+        [ArrayParameter(typeof(TargetPropertyWithContext), "contextproperty")]
         public IList<TargetPropertyWithContext> ResourceAttributes { get; set; } =
             new List<TargetPropertyWithContext>();
 
@@ -85,7 +90,7 @@ namespace NLog.OpenTelemetry
 
         private HashSet<string> _excludedTags = new(new[]
         {
-            "correlationId",
+            CorrelationIdTag,
             "process.id",
             "process.name"
         });
@@ -95,9 +100,12 @@ namespace NLog.OpenTelemetry
         /// </summary>
         public string ExcludedBaggage { get; set; }
 
+        public const string CorrelationIdTag = "correlationId";
+        public const string CorrelationIdBaggage = "x-correlation-id";
+
         private HashSet<string> _excludedBaggage = new(new[]
         {
-            "x-correlation-id"
+            CorrelationIdBaggage
         });
 
 
@@ -137,8 +145,7 @@ namespace NLog.OpenTelemetry
 
         protected override void InitializeTarget()
         {
-            if (IncludeBaggage)
-                OtelBaggageLayout = new OtelBaggageLayout();
+            OtelBaggageLayout = new OtelBaggageLayout();
             if(IncludeTags)
                 OtelTagsLayout = new OtelTagsLayout();
 
@@ -442,14 +449,26 @@ namespace NLog.OpenTelemetry
         {
             try
             {
+                var activityBaggage = OtelBaggageLayout.RetrieveBaggage(logEvent);
+
+                if (IncludeCorrelationId)
+                {
+                    if (activityBaggage?.TryGetValue(CorrelationIdBaggage, out var correlationId) == true && !string.IsNullOrEmpty(correlationId))
+                    {
+                        logRecord.Attributes.Add(
+                            PrimitiveConversions.NewStringAttribute(CorrelationIdTag,
+                                correlationId));
+                    }
+                }
+
                 if (IncludeBaggage)
                 {
-                    var activityBaggage = OtelBaggageLayout.RetrieveBaggage(logEvent)
+                    var filteredBaggage = activityBaggage
                         ?.Where(baggageItem => baggageItem.Value != null && !_excludedBaggage.Contains(baggageItem.Key));
 
-                    if (activityBaggage == null) return;
+                    if (filteredBaggage == null) return;
 
-                    foreach (var baggageItem in activityBaggage)
+                    foreach (var baggageItem in filteredBaggage)
                     {
                         logRecord.Attributes.Add(
                             PrimitiveConversions.NewStringAttribute($"baggage.{baggageItem.Key}",

@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using NLog;
 using System.Diagnostics;
 using OpenTelemetry;
-using Example.WebApi.CorrelationId;
+using Jedi.ServiceFabric.Tracing;
 
 namespace Example.WebApi.Controllers
 {

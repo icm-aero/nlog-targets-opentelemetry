@@ -288,9 +288,12 @@ namespace NLog.OpenTelemetry
         private void ProcessCoreResourceAttributes(LogEventInfo eventInfo, RepeatedField<KeyValue> resourceAttributes,
             string name, Layout? layout, string? environmentVar = null)
         {
-            var resourceValue = layout?.Render(eventInfo);
-            if (string.IsNullOrEmpty(resourceValue) && environmentVar != null)
+            string? resourceValue = null;
+            if (environmentVar != null)
                 resourceValue = System.Environment.GetEnvironmentVariable(environmentVar);
+
+            if (string.IsNullOrEmpty(resourceValue))
+                resourceValue = layout?.Render(eventInfo);
 
             if (!string.IsNullOrEmpty(resourceValue))
                 resourceAttributes.Add(PrimitiveConversions.NewStringAttribute(name, resourceValue!));

@@ -12,10 +12,9 @@ namespace Jedi.ServiceFabric.Host.Logging
     {
         protected override void Append(StringBuilder builder, LogEventInfo logEvent)
         {
-            var correlationID = "";//ServiceTracingContext.GetRequestCorrelationId();
+            var correlationID = ServiceTracingContext.GetRequestCorrelationId();
             if (string.IsNullOrEmpty(correlationID))
             {
-                var baggage = Baggage.Current.GetBaggage();
                 correlationID = Baggage.GetBaggage(CorrelationIdMiddleware.BaggageCorrelationIdHeader);
             }
             builder.Append(correlationID);

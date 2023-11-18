@@ -53,6 +53,7 @@
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.2.0" />
 		<PackageReference Include="NLog" Version="4.7.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
+    <PackageReference Include="Grpc.Net.Client" Version="2.59.0" />
 	</ItemGroup>
 
   <!--<ItemGroup Condition=" '$(TargetFramework)' == 'net462' ">

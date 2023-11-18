@@ -38,8 +38,8 @@
     <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.0.0-rc9" />
     <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.0.0-rc9" />
 
-    <PackageReference Include="Grpc.Net.Client" Version="2.54.0-icm" />
-    <PackageReference Include="Grpc.Net.Common" Version="2.54.0-pre1" />
+    <!--<PackageReference Include="Grpc.Net.Client" Version="2.54.0-icm" />
+    <PackageReference Include="Grpc.Net.Common" Version="2.54.0-pre1" />-->
   </ItemGroup>
 
   <ItemGroup>

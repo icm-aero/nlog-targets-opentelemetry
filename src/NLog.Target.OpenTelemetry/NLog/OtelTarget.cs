@@ -167,26 +167,26 @@ namespace NLog.OpenTelemetry
                 var otlpEndpoint = GetProperty(eventInfo, OtlpEndpoint, DefaultEnvOtelExporterOtlpEndpoint,
                     "http://localhost:4317");
 
-#if !NET5_0_OR_GREATER                
-                otlpProtocol = "http";
-                var uri = new UriBuilder(otlpEndpoint);
-                if (uri.Port == 4317)
-                {
-                    InternalLogger.Info("Forcing OTEL Protocol from GRPC(4317) to HTTP(4318)");
-                    uri.Port = 4318;
-                    otlpEndpoint = uri.ToString();
-                    System.Environment.SetEnvironmentVariable(DefaultEnvOtelLogExporterOtlpEndpoint, otlpEndpoint);
-                }
-#endif
+//#if !NET5_0_OR_GREATER                
+//                otlpProtocol = "http";
+//                var uri = new UriBuilder(otlpEndpoint);
+//                if (uri.Port == 4317)
+//                {
+//                    InternalLogger.Info("Forcing OTEL Protocol from GRPC(4317) to HTTP(4318)");
+//                    uri.Port = 4318;
+//                    otlpEndpoint = uri.ToString();
+//                    System.Environment.SetEnvironmentVariable(DefaultEnvOtelLogExporterOtlpEndpoint, otlpEndpoint);
+//                }
+//#endif
                 if (!otlpEndpoint.EndsWith("/")) otlpEndpoint += "/";
 
                 var otlpHeaders = GetHeaders(eventInfo);
 
                 grpcExporter = otlpProtocol switch
                 {
-#if NET5_0_OR_GREATER
+//#if NET5_0_OR_GREATER
                     "grpc" => new GrpcExporter($"{otlpEndpoint}v1/logs", otlpHeaders),
-#endif
+//#endif
                     "http" => new HttpExporter($"{otlpEndpoint}v1/logs", otlpHeaders),
                     _ => throw new ArgumentException("Invalid OTLP Protocol, supported options: grpc, http")
                 };

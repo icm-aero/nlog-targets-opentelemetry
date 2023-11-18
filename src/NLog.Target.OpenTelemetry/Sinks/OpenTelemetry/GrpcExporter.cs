@@ -12,11 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#if NET5_0_OR_GREATER
+//#if NET5_0_OR_GREATER
 
 using Grpc.Core;
+using Microsoft.Extensions.Options;
+
+#if NETSTANDARD2_1 || NET5_0_OR_GREATER
 using Grpc.Net.Client;
+#endif
+#if net461
+using System.ServiceModel.ComIntegration;
+#endif
 using OpenTelemetry.Proto.Collector.Logs.V1;
+
 
 namespace Serilog.Sinks.OpenTelemetry;
 
@@ -27,9 +35,11 @@ namespace Serilog.Sinks.OpenTelemetry;
 sealed class GrpcExporter : IExporter, IDisposable
 {
     readonly LogsService.LogsServiceClient _client;
-
+#if NETSTANDARD2_1 || NET5_0_OR_GREATER
     readonly GrpcChannel _channel;
-
+#else
+    readonly Channel _channel;
+#endif
     readonly Metadata _headers;
 
     /// <summary>
@@ -48,6 +58,7 @@ sealed class GrpcExporter : IExporter, IDisposable
     public GrpcExporter(string endpoint, IDictionary<string, string>? headers,
         HttpMessageHandler? httpMessageHandler = null)
     {
+#if NETSTANDARD2_1 || NET5_0_OR_GREATER
         var grpcChannelOptions = new GrpcChannelOptions();
 
         if (httpMessageHandler != null)
@@ -59,7 +70,22 @@ sealed class GrpcExporter : IExporter, IDisposable
         _channel = GrpcChannel.ForAddress(endpoint, grpcChannelOptions);
         _client = new LogsService.LogsServiceClient(_channel);
         _headers = new Metadata();
-        
+#else
+        var endpointUri = new Uri(endpoint);
+        ChannelCredentials channelCredentials;
+        if (endpointUri.Scheme == Uri.UriSchemeHttps)
+        {
+            channelCredentials = new SslCredentials();
+        }
+        else
+        {
+            channelCredentials = ChannelCredentials.Insecure;
+        }
+
+        _channel = new Channel(endpointUri.Authority, channelCredentials);
+        _client = new LogsService.LogsServiceClient(_channel);
+        _headers = new Metadata();
+#endif
         if (headers != null)
         {
             foreach (var header in headers)
@@ -71,7 +97,11 @@ sealed class GrpcExporter : IExporter, IDisposable
 
     public void Dispose()
     {
+#if NETSTANDARD2_1 || NET5_0_OR_GREATER
         _channel.Dispose();
+#else
+        //_channel.ShutdownAsync().GetAwaiter();
+#endif
     }
 
     public void Export(ExportLogsServiceRequest request)
@@ -85,4 +115,4 @@ sealed class GrpcExporter : IExporter, IDisposable
     }
 }
 
-#endif
+//#endif

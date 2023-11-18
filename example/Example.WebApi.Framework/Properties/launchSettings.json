@@ -23,11 +23,12 @@
     "Example.WebApi.Framework": {
       "commandName": "Project",
       "launchBrowser": true,
-      "launchUrl": "api/values",
-      "applicationUrl": "http://localhost:5000",
+      "launchUrl": "swagger",
+      "applicationUrl": "http://localhost:5007",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
-        "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317",
+        "OTEL_EXPORTER_OTLP_ENDPOINT1": "http://localhost:4317",
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:16255",
         "OTEL_SERVICE_NAME": "NLog.OTEL.Example.Framework",
         "OTEL_SERVICE_VERSION": "1.2.3"
       }

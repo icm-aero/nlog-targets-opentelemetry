@@ -17,7 +17,8 @@
       "applicationUrl": "http://localhost:5082",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
-        "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317",
+        "OTEL_EXPORTER_OTLP_ENDPOINT1": "http://localhost:4317",
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:16255",
         "OTEL_SERVICE_NAME": "NLog.OTEL.Example.WebApi",
         "OTEL_SERVICE_VERSION": "1.2.3"
       }

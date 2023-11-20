@@ -3,7 +3,7 @@
 		<Description>A NLog target that writes log events to an OpenTelemetry collector.</Description>
 		<VersionPrefix>1.0.0</VersionPrefix>
 		<Authors>Serilog Contributors</Authors>
-    <TargetFrameworks>net5.0;net6.0;netstandard2.1;netstandard2.0;net462</TargetFrameworks>
+    <TargetFrameworks>net8.0;net5.0;net6.0;netstandard2.1;netstandard2.0;net462</TargetFrameworks>
     <!--<TargetFrameworks>net5.0</TargetFrameworks>-->
 		<PackageTags>nlog;target;opentelemetry</PackageTags>
 		<PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
@@ -34,6 +34,20 @@
 	  <NoWarn>1701;1702,NU5104</NoWarn>
 	  <TreatWarningsAsErrors>False</TreatWarningsAsErrors>
 	</PropertyGroup>
+
+  <PropertyGroup Condition=" '$(TargetFramework)' == 'net8.0' ">
+    <DefineConstants>$(DefineConstants);FEATURE_CWT_ADDORUPDATE;FEATURE_ACTIVITY;FEATURE_HALF;FEATURE_DATE_AND_TIME_ONLY</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|net8.0|AnyCPU'">
+    <NoWarn>1701;1702,NU5104</NoWarn>
+    <TreatWarningsAsErrors>False</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|net8.0|AnyCPU'">
+    <NoWarn>1701;1702,NU5104</NoWarn>
+    <TreatWarningsAsErrors>False</TreatWarningsAsErrors>
+  </PropertyGroup>
 	
 	<ItemGroup>
 	  <Compile Remove="Removable\**" />

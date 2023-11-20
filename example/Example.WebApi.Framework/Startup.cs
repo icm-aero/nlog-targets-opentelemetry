@@ -17,6 +17,7 @@ using System.Net;
 using System.Threading.Tasks;
 using OpenTelemetry;
 using Microsoft.OpenApi.Models;
+using System.Net.Http;
 
 namespace Example.WebApi.Framework
 {

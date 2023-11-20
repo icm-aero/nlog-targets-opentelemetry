@@ -14,14 +14,12 @@
 
 //#if NET5_0_OR_GREATER
 
+using System.Net.Http;
 using Grpc.Core;
 using Microsoft.Extensions.Options;
 
 #if NETSTANDARD2_1 || NET5_0_OR_GREATER
 using Grpc.Net.Client;
-#endif
-#if net461
-using System.ServiceModel.ComIntegration;
 #endif
 using OpenTelemetry.Proto.Collector.Logs.V1;
 

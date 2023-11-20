@@ -99,14 +99,15 @@ namespace Example.WebApi.Framework
                 if (EnableTracing)
                 {
                     Log.Info("Enabling Open Telemetry Tracing: {0}", apmEndpoint);
-                    services.AddOpenTelemetryTracing(builder =>
+                    services.AddOpenTelemetry()
+                        .WithTracing(builder =>
                         AddOpenTelemetryTracing(services, builder, resourceBuilder));
                 }
 
                 if (EnableMetrics)
                 {
                     Log.Info("Enabling Open Telemetry Metrics: {0}", apmEndpoint);
-                    services.AddOpenTelemetryMetrics(builder =>
+                    services.AddOpenTelemetry().WithMetrics(builder =>
                         AddOpenTelemetryMetrics(services, builder, resourceBuilder));
                 }
 
@@ -128,7 +129,8 @@ namespace Example.WebApi.Framework
             var processName = process.ProcessName;
             builder
                 .SetResourceBuilder(resourceBuilder)
-                .AddAspNetCoreInstrumentation(options => options.Enrich = (activity, eventName, eventObject) =>
+                .AddAspNetCoreInstrumentation(options => 
+                    options.EnrichWithHttpRequest = (activity, request) =>
                 {
                     activity.AddTag("process.id", pid);
                     activity.AddTag("process.name", processName);
@@ -141,8 +143,8 @@ namespace Example.WebApi.Framework
                 })
                 .AddHttpClientInstrumentation(options =>
                 {
-                    options.Filter = FilterOutgoingTraces;
-                    options.Enrich = (activity, eventName, eventObject) =>
+                    options.FilterHttpRequestMessage = FilterOutgoingTraces;
+                    options.EnrichWithHttpRequestMessage = (activity, request) =>
                     {
                         //var correlationId = ServiceTracingContext.GetRequestCorrelationId();
                         //activity.AddTag("CorellationId", correlationId);
@@ -170,7 +172,7 @@ namespace Example.WebApi.Framework
             return TraceFilterList.All(s => (request?.RequestUri?.ToString()!).StartsWith(s) != true);
         }
 #else
-        protected virtual bool FilterOutgoingTraces(HttpWebRequest request)
+        protected virtual bool FilterOutgoingTraces(HttpRequestMessage request)
         {
             return TraceFilterList.All(s => request?.RequestUri?.ToString().StartsWith(s) != true);
         }

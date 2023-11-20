@@ -109,14 +109,15 @@ namespace Jedi.ServiceFabric.AspNetCore.OpenTelemetry
                     if (EnableTracing)
                     {
                         Log.Info("Enabling Open Telemetry Tracing: {0}", apmEndpoint);
-                        services.AddOpenTelemetryTracing(builder =>
-                            AddOpenTelemetryTracing(services, builder, resourceBuilder));
+                        services.AddOpenTelemetry()
+                            .WithTracing(builder =>
+                                AddOpenTelemetryTracing(services, builder, resourceBuilder));
                     }
 
                     if (EnableMetrics)
                     {
                         Log.Info("Enabling Open Telemetry Metrics: {0}", apmEndpoint);
-                        services.AddOpenTelemetryMetrics(builder =>
+                        services.AddOpenTelemetry().WithMetrics(builder =>
                             AddOpenTelemetryMetrics(services, builder, resourceBuilder));
                     }
                 }
@@ -139,22 +140,17 @@ namespace Jedi.ServiceFabric.AspNetCore.OpenTelemetry
                 .AddAspNetCoreInstrumentation(options =>
                 {
                     options.Filter = FilterIncomingTraces;
-                    options.Enrich = (activity, eventName, eventObject) =>
+                    options.EnrichWithHttpRequest = (activity, httpRequest) =>
                     {
-                        if (eventName != "OnStartActivity") return;
-
-                        var httpRequest = eventObject as HttpRequest;
                         var correlationId = CorrelationIdMiddleware.GetCorrelationId(httpRequest, CorrelationIdOptions);
                         AddBaggageToTracingTags(activity, correlationId);
                     };
                 })
                 .AddHttpClientInstrumentation(options =>
                 {
-                    options.Filter = FilterOutgoingTraces;
-                    options.Enrich = (activity, eventName, eventObject) =>
+                    options.FilterHttpRequestMessage = FilterOutgoingTraces;
+                    options.EnrichWithHttpRequestMessage = (activity, request) =>
                     {
-                        if (eventName != "OnStartActivity") return;
-
                         var correlationId = ServiceTracingContext.GetRequestCorrelationId();
                         AddBaggageToTracingTags(activity, correlationId);
                     };

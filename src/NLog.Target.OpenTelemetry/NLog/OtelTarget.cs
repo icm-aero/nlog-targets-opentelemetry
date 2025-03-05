@@ -544,8 +544,27 @@ namespace NLog.OpenTelemetry
                     var propertyKey = property.Key;
                     if (propertyKey == null) continue;
 
-                    var data = PrimitiveConversions.ToSerializedOpenTelemetryPrimitive(property.Value);
-                    logRecord.Attributes.Add(PrimitiveConversions.NewAttribute($"{propertyKey}", data));
+                    try
+                    {
+                        if (property.Value != null)
+                        {
+                            if(property.Value.GetType().ToString().StartsWith("Microsoft"))
+                                continue;
+
+                            //InternalLogger.Error($"##Property Key: {propertyKey}, Type: {property.Value.GetType()}");
+
+                            var data = PrimitiveConversions.ToSerializedOpenTelemetryPrimitive(property.Value);
+                            logRecord.Attributes.Add(PrimitiveConversions.NewAttribute($"{propertyKey}", data));
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        if (property.Value != null)
+                            InternalLogger.Error(
+                                $"Error Serializing OTEL Log: Key: {propertyKey}, Value Type: {property.Value.GetType()}, Message: {e.Message}");
+                        //throw;
+                    }
+                    
 
                     //    // Uncomment to use Serilog OTEL Object Convertor
                     //    // ----------------------------------------------------------------------------------------
